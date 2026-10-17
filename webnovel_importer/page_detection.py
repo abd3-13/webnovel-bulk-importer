@@ -49,11 +49,13 @@ class Snapshot:
     in_count: int = 0
     login_controls: int = 0
     account_markers: int = 0
+    marker_configured: bool = False
     add_source: str = "role"
 
     def summary(self) -> str:
         return (
             f"add={self.add_count}({self.add_source}) in={self.in_count} login_ctl={self.login_controls} "
+            f"marker={self.account_markers}/{'cfg' if self.marker_configured else 'unset'} "
             f"whoops={self.unavailable_title}/{self.unavailable_body} host={self.host or '-'}"
         )
 
@@ -72,9 +74,14 @@ def classify(s: Snapshot) -> tuple[PageState, str]:
     # An IN LIBRARY control implies a logged-in account, so it outranks login-control checks.
     if s.in_count == 1 and s.add_count == 0:
         return PageState.IN_LIBRARY, "single IN LIBRARY control"
-    if s.login_controls > 0:
-        return PageState.LOGIN_REQUIRED, "login/sign-in control visible"
+    # A positive logged-in marker overrides login-looking controls: logged-in pages can
+    # legitimately contain a "Sign in" button (daily check-in promo and the like).
+    logged_in = s.account_markers > 0
+    if s.login_controls > 0 and not logged_in:
+        return PageState.LOGIN_REQUIRED, "login/sign-in control visible and no logged-in marker"
     if s.add_count == 1 and s.in_count == 0:
+        if s.marker_configured and not logged_in:
+            return PageState.LOGIN_REQUIRED, "ADD control visible but logged-in marker absent"
         return PageState.NOT_IN_LIBRARY, f"single ADD TO LIBRARY control ({s.add_source})"
     if lib > 1:
         return PageState.AMBIGUOUS, f"multiple library controls (add={s.add_count}, in={s.in_count})"
@@ -89,9 +96,11 @@ def is_authenticated(s: Snapshot, require_marker: bool) -> tuple[bool, dict[str,
         "no_login_control_visible": s.login_controls == 0,
         "account_marker_present": s.account_markers > 0,
     }
-    ok = indicators["on_allowed_host"] and indicators["not_login_url"] and indicators["no_login_control_visible"]
-    if require_marker:
-        ok = ok and indicators["account_marker_present"]
+    base = indicators["on_allowed_host"] and indicators["not_login_url"]
+    if indicators["account_marker_present"]:
+        ok = base  # positive evidence wins over stray "Sign in"-looking controls
+    else:
+        ok = base and indicators["no_login_control_visible"] and not require_marker
     return ok, indicators
 
 
@@ -165,11 +174,16 @@ def take_snapshot(page: Any, cfg: Config) -> Snapshot:
     snap.unavailable_title = len(_visible(page.get_by_text(cfg.regex("unavailable_title"))))
     snap.unavailable_body = len(_visible(page.get_by_text(cfg.regex("unavailable_body"))))
     snap.login_controls = len(find_controls(page, cfg.regex("login"))[0])
-    if cfg.labels.get("account_marker"):
-        #marker = cfg.regex("account_marker")
-        #snap.account_markers = len(_visible(page.get_by_role("button", name=marker).or_(page.get_by_role("link", name=marker))))
-        marker = cfg.labels.get("account_marker")
-        snap.account_markers = len(_visible(page.locator(marker)))
+    regex, selector = cfg.labels.get("account_marker"), cfg.labels.get("account_marker_selector")
+    snap.marker_configured = bool(regex or selector)
+    if regex:
+        marker = cfg.regex("account_marker")
+        snap.account_markers += len(
+            _visible(page.get_by_role("button", name=marker).or_(page.get_by_role("link", name=marker)))
+        )
+    if selector:
+        # Attached, not visible: an icon-only avatar collapses to 0x0 when images are blocked.
+        snap.account_markers += page.locator(selector).count()
     return snap
 
 

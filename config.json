@@ -29,8 +29,14 @@
     "unavailable_title": "whoops!",
     "unavailable_body": "troubles\\s+to\\s+find\\s+out\\s+this\\s+page",
     "login": "^\\W*(log\\s?in|sign\\s?in|sign\\s?up)(\\s*/\\s*(log\\s?in|sign\\s?in|sign\\s?up))?\\W*$",
-    "account_marker": "a.j_header_user_trigger",
+    "account_marker": null,
     "library_scope_selector": null,
-    "login_url_pattern": "(log-?in|sign-?in|passport|oauth)"
-  }
+    "login_url_pattern": "(log-?in|sign-?in|passport|oauth)",
+    "account_marker_selector": "a.j_header_user_trigger"
+  },
+  "login_confirm_window_s": 3.0,
+  "block_resource_types": [
+    "image",
+    "media"
+  ]
 }

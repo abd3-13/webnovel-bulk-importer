@@ -40,7 +40,7 @@ def test_is_authenticated_needs_marker_when_required():
     assert is_authenticated(Snapshot(account_markers=0), require_marker=False)[0]
 
 
-@pytest.mark.parametrize("kw", [dict(login_controls=1, account_markers=1), dict(login_url=True, account_markers=1),
+@pytest.mark.parametrize("kw", [dict(login_controls=1), dict(login_url=True, account_markers=1),
                                 dict(on_allowed_host=False, account_markers=1)])
 def test_is_authenticated_rejects_login_signals(kw):
     assert not is_authenticated(Snapshot(**kw), require_marker=False)[0]
@@ -75,3 +75,23 @@ def test_auth_check_reports_load_failure_instead_of_crashing():
     out, asked = [], []
     assert ensure_authenticated(Page(), Config(), prompt=lambda _: asked.append(1) or "", out=out.append) is False
     assert not asked and any("network" in line for line in out)  # no misleading login prompt
+
+
+# ---- logged-in marker overrides login-looking controls (e.g. daily "Sign in" promo) ----
+@pytest.mark.parametrize("kw,expected", [
+    (dict(add_count=1, login_controls=1, account_markers=1, marker_configured=True), S.NOT_IN_LIBRARY),
+    (dict(add_count=1, login_controls=1, marker_configured=True), S.LOGIN_REQUIRED),
+    (dict(add_count=1, marker_configured=True), S.LOGIN_REQUIRED),  # marker configured but absent
+    (dict(add_count=1, account_markers=1, marker_configured=True), S.NOT_IN_LIBRARY),
+    (dict(add_count=1, marker_configured=False), S.NOT_IN_LIBRARY),  # no marker configured: legacy rule
+    (dict(marker_configured=True), S.UNKNOWN),  # unloaded page is retried, not a login pause
+    (dict(in_count=1, marker_configured=True), S.IN_LIBRARY),
+    (dict(login_url=True, add_count=1, account_markers=1, marker_configured=True), S.LOGIN_REQUIRED),
+])
+def test_classify_with_account_marker(kw, expected):
+    assert classify(Snapshot(**kw))[0] is expected
+
+
+def test_marker_overrides_signin_control_for_auth():
+    assert is_authenticated(Snapshot(login_controls=1, account_markers=1), require_marker=True)[0]
+    assert not is_authenticated(Snapshot(login_controls=1), require_marker=False)[0]

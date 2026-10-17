@@ -40,6 +40,37 @@ def test_labels_merge_with_defaults():
     assert cfg.labels["in_library"] == "saved" and "add_to_library" in cfg.labels
 
 
+def test_selector_in_account_marker_is_rejected_with_hint():
+    with pytest.raises(ConfigError, match="account_marker_selector"):
+        build_config({"labels": {"account_marker": "a.j_header_user_trigger"}})
+
+
+def test_selector_key_accepts_css_and_satisfies_requirement():
+    cfg = build_config({"labels": {"account_marker": None, "account_marker_selector": "a.j_header_user_trigger"}})
+    assert cfg.labels["account_marker_selector"] == "a.j_header_user_trigger"
+
+
+def test_marker_required_but_none_configured():
+    with pytest.raises(ConfigError):
+        build_config({"require_account_marker": True, "labels": {"account_marker": None}})
+
+
+def test_defaults_do_not_assume_a_marker():
+    cfg = Config()
+    assert not cfg.require_account_marker and not cfg.labels["account_marker"] and not cfg.labels["account_marker_selector"]
+
+
+@pytest.mark.parametrize("bad", [{"block_resource_types": ["script"]}, {"block_resource_types": "image"},
+                                 {"login_confirm_window_s": 99}])
+def test_new_option_validation(bad):
+    with pytest.raises(ConfigError):
+        build_config(bad)
+
+
+def test_blocking_can_be_disabled():
+    assert build_config({"block_resource_types": []}).block_resource_types == []
+
+
 def test_shipped_config_json_is_valid():
     from pathlib import Path
     load_config(Path(__file__).resolve().parent.parent / "config.json", explicit=True)

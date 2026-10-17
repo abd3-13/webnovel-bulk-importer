@@ -47,18 +47,41 @@ class BrowserSession:
         self._pw: Any = None
         self.context: Any = None
         self.page: Any = None
-        self._block_images = False
+        self._cdp: Any = None
 
-    def _handle_route(self, route: Any) -> None:
-        """Block image requests only when image blocking is enabled."""
-        if self._block_images and route.request.resource_type == "image":
-            route.abort()
+    def set_resource_blocking(self, enabled: bool) -> None:
+        """Block cfg.block_resource_types (images/media by default) on the working page.
+
+        Uses CDP Fetch filtered by resource type rather than context.route(): route
+        interception disables Chromium's HTTP cache for *every* request (measured: JS
+        re-downloaded on each navigation), whereas Fetch patterns only pause the
+        matching requests. Chromium-only; the CDP session runs over Playwright's pipe.
+        Enable only after login is verified: blocked images can break login challenges.
+        """
+        if self.page is None or enabled == (self._cdp is not None):
+            return
+        if enabled:
+            types = [t.capitalize() for t in self.cfg.block_resource_types]
+            if not types:
+                return
+            cdp = self.context.new_cdp_session(self.page)
+
+            def on_paused(event: dict) -> None:
+                try:  # never leave a paused request unanswered
+                    cdp.send("Fetch.failRequest", {"requestId": event["requestId"], "errorReason": "BlockedByClient"})
+                except Exception:  # noqa: BLE001 - page/session already gone
+                    pass
+
+            cdp.on("Fetch.requestPaused", on_paused)
+            cdp.send("Fetch.enable", {"patterns": [{"resourceType": t} for t in types]})
+            self._cdp = cdp
         else:
-            route.continue_()
-    
-    def set_image_blocking(self, enabled: bool) -> None:
-        """Enable or disable image blocking for this browser context."""
-        self._block_images = enabled
+            cdp, self._cdp = self._cdp, None
+            for step in (lambda: cdp.send("Fetch.disable"), cdp.detach):
+                try:
+                    step()
+                except Exception:  # noqa: BLE001
+                    pass
 
     def __enter__(self) -> "BrowserSession":
         try:
@@ -77,9 +100,6 @@ class BrowserSession:
             if self.cfg.headed:
                 kwargs["no_viewport"] = True
             self.context = self._pw.chromium.launch_persistent_context(str(profile), **kwargs)
-            # Allow images initially; blocking is enabled after authentication is verified.
-            self.context.route("**/*", self._handle_route)
-
         except Exception as exc:
             self._pw.stop()
             self._pw = None
@@ -99,6 +119,7 @@ class BrowserSession:
         self.close()
 
     def close(self) -> None:
+        self._cdp = None
         for closer in (lambda: self.context and self.context.close(), lambda: self._pw and self._pw.stop()):
             try:
                 closer()
@@ -159,7 +180,8 @@ class PlaywrightDriver:
             else:
                 if state is not last:
                     last, since = state, now
-                if now - since >= self.cfg.stability_window_s:
+                window = self.cfg.login_confirm_window_s if state is PageState.LOGIN_REQUIRED else self.cfg.stability_window_s
+                if now - since >= window:
                     return state, detail
             if now >= deadline:
                 if state is PageState.UNKNOWN:

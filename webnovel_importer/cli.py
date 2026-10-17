@@ -58,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--max-delay", type=float, help="max seconds between books")
         sp.add_argument("--retries", type=int, help="retries for transient errors")
         sp.add_argument("--keep-open", action="store_true", help="keep the browser open at the end")
+        sp.add_argument("--allow-images", action="store_true", help="do not block images/media while importing")
         sp.add_argument("--headless", action="store_true", help="run without a visible window (login needs headed)")
 
     r = sub.add_parser("run", help="import pending URLs (modifies your WebNovel library)")
@@ -88,6 +89,8 @@ def apply_overrides(cfg: Config, args: argparse.Namespace) -> Config:
             changes[field_name] = getattr(args, opt)
     if getattr(args, "keep_open", False):
         changes["keep_browser_open"] = True
+    if getattr(args, "allow_images", False):
+        changes["block_resource_types"] = []
     if getattr(args, "headless", False):
         changes["headed"] = False
     if not changes:
@@ -232,13 +235,9 @@ def _launch(cfg: Config) -> BrowserSession:
 def cmd_login(cfg: Config, args: argparse.Namespace) -> int:
     session = _launch(cfg)
     try:
-        authenticated = ensure_authenticated(session.page, cfg)
-        session.set_image_blocking(authenticated)
-        
-        if authenticated:
+        if ensure_authenticated(session.page, cfg):
             print("Authentication: verified. The session is saved in the browser profile.")
             return EXIT_OK
-        
         print("Authentication was not verified.")
         return EXIT_STOPPED
     finally:
@@ -314,30 +313,20 @@ def cmd_import(cfg: Config, args: argparse.Namespace) -> int:
     session = _launch(cfg)
     exit_code = EXIT_OK
     try:
-        authenticated = ensure_authenticated(session.page, cfg)
-        
-        # Keep images enabled for login; block them after verification.
-        session.set_image_blocking(authenticated)
-        
-        if not authenticated:
+        if not ensure_authenticated(session.page, cfg):
             print("Authentication not verified; nothing was processed.")
             return EXIT_STOPPED
-        
         print("\nAuthentication: verified\n")
-        
+        # Blocking starts only now: login pages and challenges always load fully.
+        session.set_resource_blocking(True)
         importer = Importer(PlaywrightDriver(session.page, cfg), store, cfg)
 
         def resume_after_login() -> bool:
             print("Log in again in the browser window; processing resumes only once login is verified.")
-            # Re-enable images so the user can log in again.
-            session.set_image_blocking(False)
-        
-            print("Log in again in the browser window; processing resumes only once login is verified.")
-            authenticated = ensure_authenticated(session.page, cfg)
-        
-            # Block images again only after login is verified.
-            session.set_image_blocking(authenticated)
-            return authenticated
+            session.set_resource_blocking(False)  # let login pages/challenges load fully
+            ok = ensure_authenticated(session.page, cfg)
+            session.set_resource_blocking(ok)
+            return ok
 
         try:
             result = run_batch(importer, items, len(valid), TerminalReporter(store, valid, args.verbose), resume_after_login)

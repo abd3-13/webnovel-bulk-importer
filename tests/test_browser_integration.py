@@ -21,6 +21,9 @@ from webnovel_importer.persistence import ProgressStore
 pw = pytest.importorskip("playwright.sync_api")
 
 
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a3c80000000049454e44ae426082")
+
+
 class Site:
     def __init__(self):
         self.library: set[str] = set()
@@ -59,6 +62,23 @@ def make_handler(site: Site):
             if self.path == "/":
                 nav = '<a href="/me">Profile</a>' if site.logged_in else '<a href="/x">Log in</a>'
                 return self._send(200, f"<html><body><nav>{nav}</nav></body></html>")
+            if self.path.startswith("/img.png"):
+                site.hits["img:" + self.path] += 1
+                data = PNG
+                self.send_response(200); self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(data)))
+                self.end_headers(); self.wfile.write(data)
+                return
+            if self.path.startswith("/app.js"):
+                site.hits["app.js"] += 1
+                body = b"window.x = 1"
+                self.send_response(200); self.send_header("Content-Type", "application/javascript")
+                self.send_header("Cache-Control", "max-age=3600"); self.send_header("Content-Length", str(len(body)))
+                self.end_headers(); self.wfile.write(body)
+                return
+            if self.path.startswith("/imgpage"):
+                return self._send(200, f'<html><body><script src="/app.js"></script><img src="/img.png?{self.path[-1]}"></body></html>',
+                                  {"Cache-Control": "no-store"})
             name = self.path.rsplit("/", 1)[-1]
             site.hits[name] += 1
             if name.startswith("gone-"):
@@ -85,7 +105,16 @@ def make_handler(site: Site):
                 extra = '<a href="/login">Sign in</a>'
             if name.startswith("nobtn-"):
                 return self._send(200, "<html><body><h1>Book</h1><button id=read>READ</button></body></html>")
-            html = (f"<html><body><h1>Book {name}</h1><button id=read>READ</button>"
+            marker = ""
+            if name.startswith("m"):  # logged-in header marker: icon-only avatar link, empty alt
+                avatar = '<a class="db j_header_user_trigger" href="#"><img alt="" src="/img.png?avatar"></a>'
+                if name.startswith("mlate-"):
+                    script += f"setTimeout(() => {{ document.getElementById('hdr').innerHTML = '{avatar}'; }}, 1500);"
+                else:
+                    marker = avatar
+            if name.startswith("mdaily-"):  # logged-in page that still has a "Sign in" button (daily check-in)
+                extra = "<button>Sign in</button> for a day get 1 spirit stone"
+            html = (f"<html><body><header id=hdr>{marker}</header><h1>Book {name}</h1><button id=read>READ</button>"
                     f"<button id=lib>{label}</button>{extra}<script>{script}</script></body></html>")
             self._send(200, html)
 
@@ -260,3 +289,48 @@ def test_auth_check_and_manual_login_flow(site, page):
 def test_auth_quit_returns_false(site, page):
     site.logged_in = False
     assert not ensure_authenticated(page, cfg_for(site), prompt=lambda _: "q", out=lambda s: None)
+
+
+def test_account_marker_selector_detects_icon_only_avatar(site, page):
+    from webnovel_importer.page_detection import take_snapshot
+    cfg = cfg_for(site, labels={**Config().labels, "account_marker": None,
+                                "account_marker_selector": "a.j_header_user_trigger"})
+    page.goto(site.base + "/")
+    page.set_content('<div class="g_user j_header_user"><a class="db j_header_user_trigger" href="#"><img width=20 height=20></a></div>')
+    assert take_snapshot(page, cfg).account_markers == 1
+    page.set_content("<div class='g_user'></div>")
+    assert take_snapshot(page, cfg).account_markers == 0
+
+
+# ---------------- account marker / daily "Sign in" / resource blocking ----------------
+MARKER = {"account_marker": None, "account_marker_selector": "a.j_header_user_trigger"}
+
+
+def marker_cfg(site, **kw):
+    kw.setdefault("login_confirm_window_s", 0.8)
+    return cfg_for(site, labels={**Config().labels, **MARKER}, **kw)
+
+
+def test_signin_button_on_logged_in_page_does_not_trigger_login_pause(site, page, tmp_path):
+    cfg = marker_cfg(site)
+    store = ProgressStore(tmp_path / "p.json"); store.load()
+    rec = Importer(PlaywrightDriver(page, cfg), store, cfg).process_url(url(site, "mdaily-1"))
+    assert rec["status"] == "added"
+
+
+def test_without_marker_configured_signin_button_still_means_login(site, page):
+    # legacy behaviour is preserved when no marker is configured
+    assert state_of(site, page, "mdaily-2") is S.LOGIN_REQUIRED
+
+
+def test_logged_out_book_page_with_marker_configured_is_login_required(site, page):
+    d = PlaywrightDriver(page, marker_cfg(site))
+    d.goto(url(site, "add-9"))  # no header marker on this page
+    assert d.settle()[0] is S.LOGIN_REQUIRED
+
+
+def test_late_hydrating_marker_is_not_mistaken_for_logout(site, page):
+    cfg = marker_cfg(site, login_confirm_window_s=3.0, action_timeout_s=8)
+    d = PlaywrightDriver(page, cfg)
+    d.goto(url(site, "mlate-1"))  # marker appears after 1.5 s
+    assert d.settle()[0] is S.NOT_IN_LIBRARY
