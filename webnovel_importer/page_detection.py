@@ -117,6 +117,28 @@ def classify_exception(exc: BaseException) -> tuple[str, bool]:
     return FAILED, False
 
 
+_LOCALE_SEG = re.compile(r"^[a-z]{2}(-[a-z]{2})?$", re.IGNORECASE)
+
+
+def is_login_url(url: str, pattern: re.Pattern[str], auth_hosts: list[str]) -> bool:
+    """True if the URL is a login/auth page.
+
+    The pattern must match a *whole* host label or path segment, never a substring:
+    a novel slug like "signing-in-for-eight-years" must not look like /sign-in.
+    Book pages are never login pages.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if host in [h.lower() for h in auth_hosts]:
+        return True
+    segments = [s for s in parts.path.split("/") if s]
+    if segments and _LOCALE_SEG.match(segments[0]) and len(segments) > 1:
+        segments = segments[1:]
+    if segments and segments[0].lower() == "book":
+        return False
+    return any(pattern.fullmatch(tok) for tok in host.split(".") + segments)
+
+
 def host_allowed(host: str, cfg: Config) -> bool:
     hosts = [d.lower() for d in cfg.allowed_domains] + [h.lower() for h in cfg.auth_redirect_hosts]
     return any(host == d or host.endswith("." + d) for d in hosts)
@@ -161,9 +183,7 @@ def take_snapshot(page: Any, cfg: Config) -> Snapshot:
     host = (parts.hostname or "").lower()
     snap = Snapshot(url=url, host=host)
     snap.on_allowed_host = host_allowed(host, cfg) if host else True  # about:blank
-    auth_hosts = [h.lower() for h in cfg.auth_redirect_hosts]
-    login_pat = re.compile(cfg.labels["login_url_pattern"], re.IGNORECASE)
-    snap.login_url = host in auth_hosts or bool(login_pat.search(host + parts.path))
+    snap.login_url = is_login_url(url, cfg.regex("login_url_pattern"), cfg.auth_redirect_hosts)
     if not snap.on_allowed_host:
         return snap  # never inspect or act on pages outside the allowed set
 

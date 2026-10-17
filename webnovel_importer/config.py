@@ -25,8 +25,8 @@ DEFAULT_LABELS: dict[str, Any] = {
     "account_marker_selector": None,
     # Optional CSS selector that scopes library-button lookup (null = whole page).
     "library_scope_selector": None,
-    # Regex tested against URL host+path to detect a login page.
-    "login_url_pattern": r"(log-?in|sign-?in|passport|oauth)",  # guess
+    # Regex that must fully match a host label or path segment to flag a login page.
+    "login_url_pattern": r"(log-?in|sign-?in|sign-?up|passport|oauth)",  # guess
 }
 
 

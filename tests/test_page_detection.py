@@ -2,6 +2,7 @@ import pytest
 
 from webnovel_importer.models import FAILED, NETWORK_ERROR, TIMEOUT
 from webnovel_importer.page_detection import (
+    is_login_url,
     PageState as S, Snapshot, UiError, classify, classify_exception, is_authenticated,
 )
 
@@ -95,3 +96,29 @@ def test_classify_with_account_marker(kw, expected):
 def test_marker_overrides_signin_control_for_auth():
     assert is_authenticated(Snapshot(login_controls=1, account_markers=1), require_marker=True)[0]
     assert not is_authenticated(Snapshot(login_controls=1), require_marker=False)[0]
+
+
+# ---- login URL detection must not fire on novel slugs ----
+import re as _re
+_PAT = _re.compile(r"(log-?in|sign-?in|sign-?up|passport|oauth)", _re.IGNORECASE)
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://www.webnovel.com/book/signing-in-for-eight-years-i-was-exposed-as-a-zillionaire_123", False),
+    ("https://www.webnovel.com/book/login-system_123", False),
+    ("https://www.webnovel.com/book/sign-in-god_123", False),
+    ("https://www.webnovel.com/en/book/sign-in_1", False),
+    ("https://www.webnovel.com/login", True),
+    ("https://www.webnovel.com/signin", True),
+    ("https://www.webnovel.com/sign-in/", True),
+    ("https://www.webnovel.com/en/login", True),
+    ("https://passport.webnovel.com/emaillogin.html", True),   # host label 'passport'
+    ("https://passport.webnovel.com/anything", True),          # host label 'passport'
+    ("https://www.webnovel.com/", False),
+])
+def test_is_login_url(url, expected):
+    assert is_login_url(url, _PAT, []) is expected
+
+
+def test_is_login_url_auth_hosts():
+    assert is_login_url("https://accounts.google.com/x", _PAT, ["accounts.google.com"])

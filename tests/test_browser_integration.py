@@ -154,7 +154,7 @@ def page(browser):
 def cfg_for(site, **kw):
     base = dict(
         allowed_domains=["127.0.0.1"], home_url=site.base + "/", action_timeout_s=4, navigation_timeout_s=10,
-        stability_window_s=0.3, min_delay_s=0, max_delay_s=0, backoff_base_s=0.01, retries=1,
+        stability_window_s=0.3, login_confirm_window_s=0.5, min_delay_s=0, max_delay_s=0, backoff_base_s=0.01, retries=1,
         rate_limit_pause_threshold=2,
     )
     base.update(kw)
