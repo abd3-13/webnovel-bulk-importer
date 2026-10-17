@@ -1,0 +1,44 @@
+# Chromium browser profile (cookies, login sessions, and private data)
+/browser-profile/
+
+
+# Runtime data and generated reports
+/data/
+/logs/
+*.log
+
+# Local URL lists
+/urls.txt
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Temporary files and backups
+*.tmp
+*.bak
+*.swp
+
+# Generated directory listing
+/tree.txt

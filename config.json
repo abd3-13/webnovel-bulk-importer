@@ -1,0 +1,36 @@
+{
+  "input_file": "urls.txt",
+  "results_file": "data/results.csv",
+  "progress_file": "data/progress.json",
+  "browser_profile_dir": "browser-profile",
+  "log_file": "logs/importer.log",
+  "home_url": "https://www.webnovel.com/",
+  "allowed_domains": [
+    "webnovel.com"
+  ],
+  "auth_redirect_hosts": [],
+  "strict_book_path": true,
+  "navigation_timeout_s": 45.0,
+  "action_timeout_s": 15.0,
+  "stability_window_s": 1.0,
+  "min_delay_s": 3.0,
+  "max_delay_s": 6.0,
+  "retries": 2,
+  "backoff_base_s": 2.0,
+  "backoff_max_s": 60.0,
+  "rate_limit_pause_threshold": 3,
+  "verify_with_reload": false,
+  "require_account_marker": true,
+  "keep_browser_open": false,
+  "headed": true,
+  "labels": {
+    "add_to_library": "\\badd\\s+to\\s+library\\b",
+    "in_library": "\\bin\\s+library\\b",
+    "unavailable_title": "whoops!",
+    "unavailable_body": "troubles\\s+to\\s+find\\s+out\\s+this\\s+page",
+    "login": "^\\W*(log\\s?in|sign\\s?in|sign\\s?up)(\\s*/\\s*(log\\s?in|sign\\s?in|sign\\s?up))?\\W*$",
+    "account_marker": "a.j_header_user_trigger",
+    "library_scope_selector": null,
+    "login_url_pattern": "(log-?in|sign-?in|passport|oauth)"
+  }
+}
